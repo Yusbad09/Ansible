@@ -1,0 +1,136 @@
+---
+- name: Update all packages across multi-distro Linux servers
+  hosts: all_servers
+  become: true
+  gather_facts: true   # Required to detect OS family
+
+  vars:
+    log_dir: "/var/log/ansible_updates"
+    log_file: "{{ log_dir }}/update_{{ inventory_hostname }}_{{ ansible_date_time.date }}.log"
+
+  tasks:
+
+    # ────────────────────────────────────────────
+    # STEP 1: Pre-flight check
+    # ────────────────────────────────────────────
+    - name: Display detected OS information
+      debug:
+        msg: |
+          Host     : {{ inventory_hostname }}
+          OS Family: {{ ansible_os_family }}
+          Distro   : {{ ansible_distribution }} {{ ansible_distribution_version }}
+      tags: always
+
+    - name: Ensure log directory exists on control node
+      file:
+        path: "{{ log_dir }}"
+        state: directory
+        mode: '0755'
+      tags: always
+
+    # ────────────────────────────────────────────
+    # STEP 2: Check for available updates
+    # ────────────────────────────────────────────
+
+    # --- Debian / Ubuntu / Kali ---
+    - name: "[Debian] Refresh apt package cache"
+      apt:
+        update_cache: yes
+        cache_valid_time: 3600   # Only refresh if cache is older than 1 hour
+      when: ansible_os_family == "Debian"
+      tags: check
+
+    - name: "[Debian] Check for upgradable packages"
+      shell: apt list --upgradable 2>/dev/null | grep -v "Listing..." | wc -l
+      register: debian_update_count
+      changed_when: false
+      when: ansible_os_family == "Debian"
+      tags: check
+
+    - name: "[Debian] Show available update count"
+      debug:
+        msg: "{{ debian_update_count.stdout }} package(s) available for update on {{ inventory_hostname }}"
+      when: ansible_os_family == "Debian"
+      tags: check
+
+    # --- RHEL / CentOS ---
+    - name: "[RHEL] Check for available updates"
+      shell: yum check-update --quiet | grep -v "^$" | wc -l
+      register: rhel_update_count
+      changed_when: false
+      failed_when: rhel_update_count.rc not in [0, 100]  # yum returns 100 when updates exist
+      when: ansible_os_family == "RedHat"
+      tags: check
+
+    - name: "[RHEL] Show available update count"
+      debug:
+        msg: "{{ rhel_update_count.stdout }} package(s) available for update on {{ inventory_hostname }}"
+      when: ansible_os_family == "RedHat"
+      tags: check
+
+    # ────────────────────────────────────────────
+    # STEP 3: Perform updates
+    # ────────────────────────────────────────────
+
+    - name: "[Debian] Upgrade all packages to latest version"
+      apt:
+        upgrade: dist
+        autoremove: yes
+        autoclean: yes
+      register: debian_upgrade_result
+      when: ansible_os_family == "Debian"
+      tags: update
+
+    - name: "[RHEL] Upgrade all packages to latest version"
+      yum:
+        name: "*"
+        state: latest
+        update_cache: yes
+      register: rhel_upgrade_result
+      when: ansible_os_family == "RedHat"
+      tags: update
+
+    # ────────────────────────────────────────────
+    # STEP 4: Log results
+    # ────────────────────────────────────────────
+
+    - name: "[Debian] Write update log"
+      copy:
+        content: |
+          ═══════════════════════════════════════════
+          Update Report — {{ inventory_hostname }}
+          Date     : {{ ansible_date_time.date }} {{ ansible_date_time.time }}
+          OS       : {{ ansible_distribution }} {{ ansible_distribution_version }}
+          ───────────────────────────────────────────
+          Packages changed : {{ debian_upgrade_result.stdout_lines | length }}
+          Status           : {{ 'Updated successfully' if debian_upgrade_result.changed else 'Already up to date' }}
+          ═══════════════════════════════════════════
+        dest: "{{ log_file }}"
+        mode: '0644'
+      when: ansible_os_family == "Debian"
+      tags: update
+
+    - name: "[RHEL] Write update log"
+      copy:
+        content: |
+          ═══════════════════════════════════════════
+          Update Report — {{ inventory_hostname }}
+          Date     : {{ ansible_date_time.date }} {{ ansible_date_time.time }}
+          OS       : {{ ansible_distribution }} {{ ansible_distribution_version }}
+          ───────────────────────────────────────────
+          Status   : {{ 'Updated successfully' if rhel_upgrade_result.changed else 'Already up to date' }}
+          ═══════════════════════════════════════════
+        dest: "{{ log_file }}"
+        mode: '0644'
+      when: ansible_os_family == "RedHat"
+      tags: update
+
+    # ────────────────────────────────────────────
+    # STEP 5: Summary
+    # ────────────────────────────────────────────
+    - name: Update complete — final status
+      debug:
+        msg: |
+          ✔ {{ inventory_hostname }} ({{ ansible_distribution }}) — update complete.
+            Log saved to: {{ log_file }}
+      tags: always

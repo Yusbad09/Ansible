@@ -1,0 +1,20 @@
+# Ansible runtime files
+*.retry
+ansible.log
+*.log
+
+# SSH keys — never commit
+*.pem
+*.rsa
+*.key
+id_rsa*
+ansible_rsa*
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Editor files
+.vscode/
+.idea/
+*.swp

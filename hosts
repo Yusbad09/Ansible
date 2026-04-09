@@ -1,0 +1,41 @@
+# inventory/hosts
+# ─────────────────────────────────────────────────────────────────
+# Multi-distro server inventory
+# Supports Ubuntu, Kali Linux, and CentOS out of the box.
+# Add new servers under the appropriate group — the playbook
+# auto-detects the OS family and applies the correct update method.
+# ─────────────────────────────────────────────────────────────────
+
+[ubuntu_servers]
+ubuntu-srv-01 ansible_host=10.0.0.11
+ubuntu-srv-02 ansible_host=10.0.0.12
+ubuntu-srv-03 ansible_host=10.0.0.13
+
+[kali_servers]
+kali-srv-01   ansible_host=10.0.0.21
+kali-srv-02   ansible_host=10.0.0.22
+
+[centos_servers]
+centos-srv-01 ansible_host=10.0.0.31
+centos-srv-02 ansible_host=10.0.0.32
+centos-srv-03 ansible_host=10.0.0.33
+centos-srv-04 ansible_host=10.0.0.34
+centos-srv-05 ansible_host=10.0.0.35
+
+# ─────────────────────────────────────────────────────────────────
+# Aggregate group — playbook targets this group
+# Add any new server to its distro group above and it is
+# automatically included here without changing the playbook.
+# ─────────────────────────────────────────────────────────────────
+[all_servers:children]
+ubuntu_servers
+kali_servers
+centos_servers
+
+# ─────────────────────────────────────────────────────────────────
+# Global SSH settings (adjust per your environment)
+# ─────────────────────────────────────────────────────────────────
+[all_servers:vars]
+ansible_user=ansible_svc          # Dedicated service account
+ansible_ssh_private_key_file=~/.ssh/ansible_rsa
+ansible_python_interpreter=/usr/bin/python3
