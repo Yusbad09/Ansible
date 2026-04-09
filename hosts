@@ -1,0 +1,13 @@
+# inventory/hosts
+# ─────────────────────────────────────────
+# This playbook runs on localhost (the Ansible control node).
+# Expand this inventory if you manage multiple firewalls.
+# ─────────────────────────────────────────
+
+[local]
+localhost ansible_connection=local
+
+# Example: Multiple firewalls (future expansion)
+# [firewalls]
+# fw-site-a ansible_host=10.0.1.1
+# fw-site-b ansible_host=10.0.2.1

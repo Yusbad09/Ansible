@@ -1,0 +1,25 @@
+# ─────────────────────────────────────────────────────────────
+# SECURITY: Never commit real secrets or backup files to Git
+# ─────────────────────────────────────────────────────────────
+
+# Ansible Vault secrets (only the .example template is committed)
+vars/secrets.yaml
+
+# Actual backup files
+*.xml
+paloalto_backups/
+~/paloalto_backups/
+
+# Ansible runtime files
+*.retry
+*.log
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Editor files
+.vscode/
+.idea/
+*.swp
+*.swo

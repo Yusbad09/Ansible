@@ -1,0 +1,121 @@
+---
+- name: Download and backup Palo Alto running configuration
+  hosts: localhost
+  vars_files:
+    - vars/secrets.yaml  # Encrypted with Ansible Vault
+
+  vars:
+    backup_dir: "{{ lookup('env', 'HOME') }}/paloalto_backups"
+    firewall_ip: "{{ vault_firewall_ip }}"
+    api_key: "{{ vault_api_key }}"
+    backup_filename: "PA-Firewall-config-{{ ansible_date_time.date }}.xml"
+    smb_share: "{{ vault_smb_share }}"
+    smb_user: "{{ vault_smb_user }}"
+    smb_password: "{{ vault_smb_password }}"
+    smb_remote_path: "{{ vault_smb_remote_path }}"
+
+  tasks:
+
+    # ────────────────────────────────────────────
+    # STEP 1: Preparation
+    # ────────────────────────────────────────────
+    - name: Ensure backup directory exists
+      file:
+        path: "{{ backup_dir }}"
+        state: directory
+        mode: '0750'
+      tags: setup
+
+    # ────────────────────────────────────────────
+    # STEP 2: Download configuration from firewall
+    # ────────────────────────────────────────────
+    - name: Download running configuration via PAN-OS API
+      uri:
+        url: "https://{{ firewall_ip }}/api/?type=export&category=configuration"
+        method: GET
+        headers:
+          X-PAN-KEY: "{{ api_key }}"
+        dest: "{{ backup_dir }}/{{ backup_filename }}"
+        validate_certs: false   # Set to true in production with valid certs
+        timeout: 60
+        status_code: 200
+      register: download_result
+      tags: download
+
+    - name: Confirm download success
+      debug:
+        msg: "Configuration downloaded successfully to {{ backup_dir }}/{{ backup_filename }}"
+      when: download_result.status == 200
+      tags: download
+
+    # ────────────────────────────────────────────
+    # STEP 3: Validate & format the XML
+    # ────────────────────────────────────────────
+    - name: Verify the downloaded file is valid XML
+      command: xmllint --noout "{{ backup_dir }}/{{ backup_filename }}"
+      register: xml_check
+      failed_when: xml_check.rc != 0
+      changed_when: false
+      tags: validate
+
+    - name: Format XML for readability
+      shell: |
+        xmllint --format "{{ backup_dir }}/{{ backup_filename }}" \
+          --output "{{ backup_dir }}/{{ backup_filename }}"
+      when: xml_check.rc == 0
+      register: xmllint_result
+      tags: validate
+
+    - name: Confirm XML formatting success
+      debug:
+        msg: "XML validated and formatted successfully."
+      when: xmllint_result is not skipped
+      tags: validate
+
+    # ────────────────────────────────────────────
+    # STEP 4: Transfer to remote SMB share
+    # ────────────────────────────────────────────
+    - name: Transfer backup to SMB share
+      shell: |
+        smbclient "{{ smb_share }}" \
+          -U "{{ smb_user }}%{{ smb_password }}" \
+          -c "put {{ backup_dir }}/{{ backup_filename }} \"{{ smb_remote_path }}/{{ backup_filename }}\""
+      register: smb_result
+      no_log: true    # Prevents credentials appearing in logs
+      failed_when: smb_result.rc != 0
+      tags: transfer
+
+    - name: Confirm SMB transfer success
+      debug:
+        msg: "Backup successfully transferred to {{ smb_share }}/{{ smb_remote_path }}"
+      when: smb_result.rc == 0
+      tags: transfer
+
+    # ────────────────────────────────────────────
+    # STEP 5: Cleanup old local backups (keep last 7 days)
+    # ────────────────────────────────────────────
+    - name: Remove local backups older than 7 days
+      find:
+        paths: "{{ backup_dir }}"
+        patterns: "PA-Firewall-config-*.xml"
+        age: "7d"
+        recurse: no
+      register: old_backups
+      tags: cleanup
+
+    - name: Delete old backup files
+      file:
+        path: "{{ item.path }}"
+        state: absent
+      loop: "{{ old_backups.files }}"
+      tags: cleanup
+
+    - name: Summary
+      debug:
+        msg: |
+          ✔ Backup complete
+            File    : {{ backup_filename }}
+            Saved to: {{ backup_dir }}
+            Uploaded: {{ smb_share }}/{{ smb_remote_path }}
+            Cleaned : {{ old_backups.files | length }} old backup(s) removed
+      tags: always
